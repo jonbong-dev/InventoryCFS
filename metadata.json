@@ -1,0 +1,6 @@
+{
+  "name": "Inventory Tracker",
+  "description": "Multi-site inventory tracking system with stock ledger, collection and delivery note PDF generation, dual database support (PostgreSQL & SQL Server), and seat licensing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

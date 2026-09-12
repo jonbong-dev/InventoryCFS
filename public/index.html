@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Inventory Tracker</title>
+  <meta name="description" content="Multi-site inventory tracking system with stock ledger, collection and delivery note PDF generation, dual database support, and licensing." />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+
+  <!-- 1. LOGIN SCREEN -->
+  <div id="login-screen" class="hidden" style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1.5rem;">
+    <div class="card" style="width: 100%; max-width: 440px; margin-bottom: 0;">
+      <div style="text-align: center; margin-bottom: 1.5rem;">
+        <div class="brand-logo" style="width: 48px; height: 48px; margin: 0 auto 0.75rem; font-size: 1.3rem;">IT</div>
+        <h1 style="font-size: 1.5rem; font-weight: 800; letter-spacing: -0.5px;">Inventory Tracker</h1>
+        <p class="text-muted" style="font-size: 0.875rem; margin-top: 0.25rem;">Multi-Site Stock Ledger & Note Dispatch</p>
+      </div>
+
+      <div id="login-alert" class="alert alert-danger hidden"></div>
+      <div id="evicted-alert" class="alert alert-warning hidden">
+        <strong>Session Evicted:</strong> You were logged out because the concurrent seat limit was reached on another device.
+      </div>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label class="form-label" for="login-username">Username</label>
+          <input type="text" id="login-username" class="form-input" placeholder="admin or staff1" required autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="login-password">Password</label>
+          <input type="password" id="login-password" class="form-input" placeholder="••••••••" required autocomplete="current-password" />
+        </div>
+        <button type="submit" id="login-btn" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem;">
+          Sign In
+        </button>
+      </form>
+
+      <div style="margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border-color); font-size: 0.8125rem;">
+        <div style="font-weight: 700; color: var(--text-muted); margin-bottom: 0.5rem; text-transform: uppercase; font-size: 0.75rem;">
+          Preloaded Demo Credentials:
+        </div>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="fillLogin('admin', 'admin123')">
+            Admin (All Sites)
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="fillLogin('staff1', 'staff123')">
+            Staff (Main Warehouse)
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. MAIN APPLICATION SHELL -->
+  <div id="app-shell" class="hidden" style="min-height: 100vh; display: flex; flex-direction: column;">
+    <!-- Top Navbar -->
+    <header class="navbar">
+      <div class="nav-container">
+        <div class="brand-section">
+          <div class="brand-logo">IT</div>
+          <div>
+            <div class="brand-title">Inventory Tracker</div>
+            <div id="company-name-tag" style="font-size: 0.75rem; color: var(--text-muted); line-height: 1;">Apex Logistics</div>
+          </div>
+        </div>
+
+        <button class="mobile-nav-toggle" id="mobile-nav-toggle" aria-label="Toggle navigation">☰</button>
+
+        <nav class="nav-links" id="main-nav">
+          <button class="nav-link active" data-view="stock" onclick="switchView('stock')">📦 Stock Levels</button>
+          <button class="nav-link" data-view="movements" onclick="switchView('movements')">📜 Ledger History</button>
+          <button class="nav-link" data-view="documents" onclick="switchView('documents')">📑 Notes & Docs</button>
+          <button class="nav-link" data-view="reports" onclick="switchView('reports')">📊 Reports</button>
+          <button class="nav-link" data-view="admin" id="nav-admin-link" onclick="switchView('admin')">⚙️ Administration</button>
+        </nav>
+
+        <div class="user-controls">
+          <!-- License Badge -->
+          <div id="license-pill" class="badge badge-trial" onclick="openLicenseModal()" title="Click to view license status or activate key">
+            30d Trial (1 Seat)
+          </div>
+
+          <!-- User Pill -->
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <div style="text-align: right; line-height: 1.2;">
+              <div id="user-display-name" style="font-size: 0.875rem; font-weight: 700;">admin</div>
+              <div id="user-site-badge" style="font-size: 0.75rem; color: var(--text-muted);">All Sites</div>
+            </div>
+            <span id="user-role-badge" class="badge badge-admin">ADMIN</span>
+          </div>
+
+          <!-- Logout Button -->
+          <button type="button" class="btn btn-secondary btn-sm" onclick="handleLogout()" title="Sign Out">
+            Logout
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <div id="global-alert" class="alert alert-danger hidden"></div>
+
+      <!-- VIEW 1: STOCK LEVELS -->
+      <div id="view-stock" class="view-panel">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Current Stock Levels</h2>
+            <p class="card-subtitle">Real-time inventory balances derived dynamically from the append-only ledger.</p>
+          </div>
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button class="btn btn-primary" onclick="openMovementModal()">
+              ➕ Record Movement
+            </button>
+            <button class="btn btn-secondary" onclick="openCreateDocModal()">
+              📑 New Note (CN / DN)
+            </button>
+          </div>
+        </div>
+
+        <!-- Metrics Cards -->
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <span class="metric-label">Total SKUs</span>
+            <div class="metric-value" id="stat-total-skus">0</div>
+            <span class="metric-desc">Registered inventory catalog items</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Total Units on Hand</span>
+            <div class="metric-value" id="stat-total-units">0</div>
+            <span class="metric-desc">Across all monitored warehouse sites</span>
+          </div>
+          <div class="metric-card" style="border-left: 4px solid var(--danger);">
+            <span class="metric-label" style="color: var(--danger);">Low Stock Warnings</span>
+            <div class="metric-value" id="stat-low-stock" style="color: var(--danger);">0</div>
+            <span class="metric-desc">Items at or below reorder threshold</span>
+          </div>
+        </div>
+
+        <!-- Filters Toolbar -->
+        <div class="card">
+          <div class="toolbar">
+            <div class="toolbar-group" style="flex: 1;">
+              <input type="text" id="stock-search" class="form-input" placeholder="Search SKU or description..." style="max-width: 300px;" oninput="debounceLoadStock()" />
+              <select id="stock-site-filter" class="form-select" style="max-width: 220px;" onchange="loadStockLevels()">
+                <option value="">All Sites</option>
+              </select>
+              <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.875rem; font-weight: 600; cursor: pointer; white-space: nowrap;">
+                <input type="checkbox" id="stock-low-filter" onchange="loadStockLevels()" />
+                Low Stock Only
+              </label>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="loadStockLevels()">Refresh</button>
+          </div>
+
+          <!-- Stock Levels Table -->
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th>Description</th>
+                  <th>Site</th>
+                  <th class="text-right">Qty On Hand</th>
+                  <th class="text-right">Unit</th>
+                  <th class="text-right">Reorder Level</th>
+                  <th class="text-center">Status</th>
+                  <th class="text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody id="stock-table-body">
+                <tr><td colspan="8" class="text-center text-muted">Loading stock levels...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW 2: RAW MOVEMENT LEDGER -->
+      <div id="view-movements" class="view-panel hidden">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Stock Movement Ledger</h2>
+            <p class="card-subtitle">Append-only audit trail of every stock inflow and outflow. Never edited or deleted.</p>
+          </div>
+          <button class="btn btn-primary" onclick="openMovementModal()">
+            ➕ Record Movement
+          </button>
+        </div>
+
+        <div class="card">
+          <div class="toolbar">
+            <div class="toolbar-group">
+              <select id="ledger-site-filter" class="form-select" style="max-width: 200px;" onchange="loadLedger()">
+                <option value="">All Sites</option>
+              </select>
+              <select id="ledger-type-filter" class="form-select" style="max-width: 150px;" onchange="loadLedger()">
+                <option value="">All Types</option>
+                <option value="IN">IN Movements</option>
+                <option value="OUT">OUT Movements</option>
+              </select>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="loadLedger()">Refresh</button>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Timestamp</th>
+                  <th>Type</th>
+                  <th>Item SKU</th>
+                  <th>Description</th>
+                  <th>Site</th>
+                  <th class="text-right">Quantity</th>
+                  <th>Doc Number</th>
+                  <th>PO #</th>
+                  <th>Logged By</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody id="ledger-table-body">
+                <tr><td colspan="11" class="text-center text-muted">Loading ledger entries...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW 3: DOCUMENTS (COLLECTION & DELIVERY NOTES) -->
+      <div id="view-documents" class="view-panel hidden">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Collection & Delivery Notes</h2>
+            <p class="card-subtitle">Official transfer documents with printable PDFs and atomic ledger updates.</p>
+          </div>
+          <button class="btn btn-primary" onclick="openCreateDocModal()">
+            📑 Create Collection / Delivery Note
+          </button>
+        </div>
+
+        <div class="card">
+          <div class="toolbar">
+            <div class="toolbar-group">
+              <input type="text" id="doc-search" class="form-input" placeholder="Search Note # or Customer..." style="max-width: 260px;" oninput="debounceLoadDocs()" />
+              <select id="doc-type-filter" class="form-select" style="max-width: 180px;" onchange="loadDocuments()">
+                <option value="">All Document Types</option>
+                <option value="delivery_note">Delivery Notes (DN)</option>
+                <option value="collection_note">Collection Notes (CN)</option>
+              </select>
+              <select id="doc-site-filter" class="form-select" style="max-width: 200px;" onchange="loadDocuments()">
+                <option value="">All Sites</option>
+              </select>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="loadDocuments()">Refresh</button>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Doc #</th>
+                  <th>Type</th>
+                  <th>Site</th>
+                  <th>Customer / Supplier</th>
+                  <th>PO #</th>
+                  <th class="text-right">Lines</th>
+                  <th class="text-right">Total Qty</th>
+                  <th>Date</th>
+                  <th>Issued By</th>
+                  <th class="text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="documents-table-body">
+                <tr><td colspan="10" class="text-center text-muted">Loading documents...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW 4: REPORTS -->
+      <div id="view-reports" class="view-panel hidden">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Inventory Reports</h2>
+            <p class="card-subtitle">Export current stock valuations, full catalogs, and reorder alerts.</p>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="btn btn-primary" onclick="downloadReport('pdf')">
+              📥 Download PDF Report
+            </button>
+            <button class="btn btn-secondary" onclick="downloadReport('csv')">
+              📊 Export CSV
+            </button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="toolbar">
+            <div class="toolbar-group">
+              <select id="report-site-filter" class="form-select" style="max-width: 220px;" onchange="loadReportPreview()">
+                <option value="">All Sites Combined</option>
+              </select>
+              <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.875rem; font-weight: 600; cursor: pointer;">
+                <input type="checkbox" id="report-low-filter" onchange="loadReportPreview()" />
+                Low Stock Only
+              </label>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="loadReportPreview()">Refresh Preview</button>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th>Description</th>
+                  <th>Site</th>
+                  <th class="text-right">Reorder Level</th>
+                  <th class="text-right">Qty On Hand</th>
+                  <th>Unit</th>
+                  <th class="text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody id="report-preview-body">
+                <tr><td colspan="7" class="text-center text-muted">Loading report preview...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW 5: ADMINISTRATION -->
+      <div id="view-admin" class="view-panel hidden">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">System Administration</h2>
+            <p class="card-subtitle">Manage sites, catalog items, purchase orders, user access, company details, and seat licensing.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <!-- Admin Tabs -->
+          <div class="tabs-nav">
+            <button class="tab-btn active" onclick="switchAdminTab('sites')">🏢 Sites</button>
+            <button class="tab-btn" onclick="switchAdminTab('items')">🏷️ Items Catalog</button>
+            <button class="tab-btn" onclick="switchAdminTab('pos')">📋 Purchase Orders</button>
+            <button class="tab-btn" onclick="switchAdminTab('users')">👥 Users & Roles</button>
+            <button class="tab-btn" onclick="switchAdminTab('settings')">🏢 Company Settings</button>
+            <button class="tab-btn" onclick="switchAdminTab('license')">🔑 License & Seats</button>
+          </div>
+
+          <!-- TAB 1: SITES -->
+          <div id="admin-tab-sites" class="admin-tab-panel">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+              <h3 style="font-size: 1.1rem; font-weight: 700;">Warehouse & Distribution Sites</h3>
+              <button class="btn btn-primary btn-sm" onclick="openSiteModal()">➕ Add New Site</button>
+            </div>
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Site Name</th>
+                    <th>Created</th>
+                    <th class="text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-sites-table"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- TAB 2: ITEMS -->
+          <div id="admin-tab-items" class="admin-tab-panel hidden">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+              <h3 style="font-size: 1.1rem; font-weight: 700;">Catalog Items & Reorder Rules</h3>
+              <button class="btn btn-primary btn-sm" onclick="openItemModal()">➕ Add Catalog Item</button>
+            </div>
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>SKU</th>
+                    <th>Description</th>
+                    <th>Unit</th>
+                    <th class="text-right">Reorder Threshold</th>
+                    <th class="text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-items-table"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- TAB 3: POS -->
+          <div id="admin-tab-pos" class="admin-tab-panel hidden">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+              <h3 style="font-size: 1.1rem; font-weight: 700;">Purchase Orders</h3>
+              <button class="btn btn-primary btn-sm" onclick="openPoModal()">➕ Create Purchase Order</button>
+            </div>
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>PO Number</th>
+                    <th>Destination Site</th>
+                    <th>Status</th>
+                    <th>Notes</th>
+                    <th>Created</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-pos-table"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- TAB 4: USERS -->
+          <div id="admin-tab-users" class="admin-tab-panel hidden">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+              <div>
+                <h3 style="font-size: 1.1rem; font-weight: 700;">Users & Site Access</h3>
+                <p class="text-muted" style="font-size: 0.8125rem;">Staff are strictly confined to their assigned site for any write action.</p>
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="openUserModal()">➕ Add User</button>
+            </div>
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Username</th>
+                    <th>Role</th>
+                    <th>Assigned Site</th>
+                    <th>Created</th>
+                    <th class="text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-users-table"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- TAB 5: COMPANY SETTINGS -->
+          <div id="admin-tab-settings" class="admin-tab-panel hidden">
+            <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem;">Company Profile & Document Header</h3>
+            <div id="settings-alert" class="alert alert-success hidden"></div>
+            <form id="settings-form" onsubmit="saveCompanySettings(event)" style="max-width: 600px;">
+              <div class="form-group">
+                <label class="form-label" for="setting-name">Company Name</label>
+                <input type="text" id="setting-name" class="form-input" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="setting-address">Official Address</label>
+                <input type="text" id="setting-address" class="form-input" required />
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label" for="setting-phone">Phone Number</label>
+                  <input type="text" id="setting-phone" class="form-input" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="setting-email">Contact Email</label>
+                  <input type="email" id="setting-email" class="form-input" />
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="setting-footer">Collection & Delivery Note Footer Note</label>
+                <textarea id="setting-footer" class="form-textarea"></textarea>
+                <small class="text-muted">Appears at the bottom of all generated PDFs.</small>
+              </div>
+              <button type="submit" class="btn btn-primary">Save Company Settings</button>
+            </form>
+          </div>
+
+          <!-- TAB 6: LICENSE & SEATS -->
+          <div id="admin-tab-license" class="admin-tab-panel hidden">
+            <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem;">Cryptographic License & Seat Management</h3>
+            <p class="text-muted" style="font-size: 0.875rem; margin-bottom: 1.25rem;">
+              Self-contained HMAC-SHA256 license verification. No phone-home required.
+            </p>
+
+            <div class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+              <div class="metric-card">
+                <span class="metric-label">Licensed Customer</span>
+                <div class="metric-value" id="lic-customer" style="font-size: 1.25rem; word-break: break-word;">-</div>
+                <span class="metric-desc" id="lic-type-tag">Evaluation Trial</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-label">Authorized Seats</span>
+                <div class="metric-value" id="lic-seats">1</div>
+                <span class="metric-desc" id="lic-seats-usage">1 in use currently</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-label">Days Remaining</span>
+                <div class="metric-value" id="lic-days-remaining">30</div>
+                <span class="metric-desc" id="lic-expiry-date">-</span>
+              </div>
+            </div>
+
+            <div style="margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border-color); max-width: 650px;">
+              <h4 style="font-size: 1rem; font-weight: 700; margin-bottom: 0.5rem;">Activate New License Key</h4>
+              <p class="text-muted" style="font-size: 0.8125rem; margin-bottom: 0.75rem;">
+                Keys are issued by the standalone vendor key generator tool. Paste your signed key below:
+              </p>
+              <div id="license-activate-alert" class="alert hidden"></div>
+              <form id="license-activate-form" onsubmit="handleActivateLicense(event)">
+                <div class="form-group">
+                  <textarea id="license-key-input" class="form-textarea font-mono" placeholder="LIC-eyJjdXN0b21lciI..." style="min-height: 90px;" required></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">Activate License</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- MODAL: RECORD STOCK MOVEMENT -->
+  <div id="modal-movement" class="modal-backdrop hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="card-title" style="font-size: 1.15rem;">Record Stock Movement</h3>
+        <button class="close-btn" onclick="closeModal('modal-movement')">×</button>
+      </div>
+      <form id="movement-form" onsubmit="submitStockMovement(event)">
+        <div class="modal-body">
+          <div id="movement-modal-alert" class="alert alert-danger hidden"></div>
+          <div class="form-group">
+            <label class="form-label" for="mov-item">Select Item (SKU)</label>
+            <select id="mov-item" class="form-select" required onchange="updateMovementUnitPreview()"></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="mov-site">Warehouse Site</label>
+            <select id="mov-site" class="form-select" required></select>
+            <small id="mov-site-note" class="text-muted"></small>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="mov-type">Movement Type</label>
+              <select id="mov-type" class="form-select" required>
+                <option value="IN">IN (Stock Received / Replenish)</option>
+                <option value="OUT">OUT (Stock Dispatched / Consumed)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="mov-qty">Quantity</label>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <input type="number" id="mov-qty" class="form-input" min="0.01" step="any" placeholder="0" required />
+                <span id="mov-unit-preview" style="font-weight: 600; color: var(--text-muted); font-size: 0.875rem;">pcs</span>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="mov-po">Associated Purchase Order (Optional)</label>
+            <select id="mov-po" class="form-select">
+              <option value="">None / Manual Adjustment</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="mov-notes">Reference / Reason / Ledger Notes</label>
+            <input type="text" id="mov-notes" class="form-input" placeholder="e.g. Regular replenish, damaged scrap, recount..." />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-movement')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Commit to Ledger</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: CREATE COLLECTION OR DELIVERY NOTE -->
+  <div id="modal-document" class="modal-backdrop hidden">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 class="card-title" style="font-size: 1.15rem;">Create Collection / Delivery Note</h3>
+        <button class="close-btn" onclick="closeModal('modal-document')">×</button>
+      </div>
+      <form id="document-form" onsubmit="submitDocument(event)">
+        <div class="modal-body">
+          <div id="doc-modal-alert" class="alert alert-danger hidden"></div>
+          <div class="alert alert-info" style="font-size: 0.8125rem;">
+            <strong>Atomic Transaction:</strong> Saving this note will insert the document row and automatically append corresponding IN/OUT movements into the stock ledger in a single transaction.
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="doc-type">Document Type</label>
+              <select id="doc-type" class="form-select" required onchange="onDocTypeChange()">
+                <option value="delivery_note">Delivery Note (DN) — Stock OUT</option>
+                <option value="collection_note">Collection Note (CN) — Stock IN</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="doc-site">Fulfillment Site</label>
+              <select id="doc-site" class="form-select" required></select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" id="doc-recipient-label" for="doc-customer">Customer Name</label>
+              <input type="text" id="doc-customer" class="form-input" placeholder="e.g. Metro Freight Logistics" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="doc-po">PO Number (Optional)</label>
+              <input type="text" id="doc-po" class="form-input" placeholder="e.g. PO-9001" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="doc-notes">Instructions / Special Notes</label>
+            <input type="text" id="doc-notes" class="form-input" placeholder="e.g. Fragile goods, dock bay 4 receipt..." />
+          </div>
+
+          <!-- Dynamic Line Items -->
+          <div style="margin-top: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <label class="form-label" style="margin-bottom: 0;">Line Items</label>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="addDocumentLineItem()">➕ Add Line Item</button>
+            </div>
+
+            <div class="table-responsive">
+              <table class="data-table" style="font-size: 0.8125rem;">
+                <thead>
+                  <tr>
+                    <th style="width: 45%;">Item (SKU & Description)</th>
+                    <th style="width: 25%;">Quantity</th>
+                    <th style="width: 25%;">Line Note</th>
+                    <th style="width: 5%;"></th>
+                  </tr>
+                </thead>
+                <tbody id="doc-line-items-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-document')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Generate Note & Update Ledger</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: DOCUMENT DETAILS -->
+  <div id="modal-doc-details" class="modal-backdrop hidden">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="details-doc-title" class="card-title" style="font-size: 1.15rem;">Document Details</h3>
+        <button class="close-btn" onclick="closeModal('modal-doc-details')">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="details-doc-meta" style="margin-bottom: 1.25rem;"></div>
+        <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 0.5rem;">Dispatched / Received Line Items</h4>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>SKU</th>
+                <th>Description</th>
+                <th>Movement</th>
+                <th class="text-right">Quantity</th>
+                <th>Unit</th>
+              </tr>
+            </thead>
+            <tbody id="details-lines-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modal-doc-details')">Close</button>
+        <a id="details-pdf-btn" href="#" target="_blank" class="btn btn-primary">📄 Print / Open PDF</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODALS FOR ADMIN: SITE, ITEM, PO, USER -->
+  <!-- Site Modal -->
+  <div id="modal-site" class="modal-backdrop hidden">
+    <div class="modal" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3 id="modal-site-title" class="card-title" style="font-size: 1.15rem;">Create New Site</h3>
+        <button class="close-btn" onclick="closeModal('modal-site')">×</button>
+      </div>
+      <form id="site-form" onsubmit="submitSite(event)">
+        <input type="hidden" id="site-id-input" />
+        <div class="modal-body">
+          <div id="site-modal-alert" class="alert alert-danger hidden"></div>
+          <div class="form-group">
+            <label class="form-label" for="site-name-input">Site Name</label>
+            <input type="text" id="site-name-input" class="form-input" placeholder="e.g. South Logistics Center" required />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-site')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Site</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Item Modal -->
+  <div id="modal-item" class="modal-backdrop hidden">
+    <div class="modal" style="max-width: 500px;">
+      <div class="modal-header">
+        <h3 id="modal-item-title" class="card-title" style="font-size: 1.15rem;">Add Catalog Item</h3>
+        <button class="close-btn" onclick="closeModal('modal-item')">×</button>
+      </div>
+      <form id="item-form" onsubmit="submitItem(event)">
+        <input type="hidden" id="item-id-input" />
+        <div class="modal-body">
+          <div id="item-modal-alert" class="alert alert-danger hidden"></div>
+          <div class="form-group">
+            <label class="form-label" for="item-sku-input">SKU (Stock Keeping Unit)</label>
+            <input type="text" id="item-sku-input" class="form-input" placeholder="e.g. SKU-5001" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="item-desc-input">Description</label>
+            <input type="text" id="item-desc-input" class="form-input" placeholder="e.g. Heavy Duty Pallet Wrap 500mm" required />
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="item-unit-input">Unit of Measure</label>
+              <input type="text" id="item-unit-input" class="form-input" placeholder="pcs, rolls, kg, box" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="item-reorder-input">Reorder Level Threshold</label>
+              <input type="number" id="item-reorder-input" class="form-input" min="0" value="10" required />
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-item')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Item</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- PO Modal -->
+  <div id="modal-po" class="modal-backdrop hidden">
+    <div class="modal" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3 class="card-title" style="font-size: 1.15rem;">Create Purchase Order</h3>
+        <button class="close-btn" onclick="closeModal('modal-po')">×</button>
+      </div>
+      <form id="po-form" onsubmit="submitPo(event)">
+        <div class="modal-body">
+          <div id="po-modal-alert" class="alert alert-danger hidden"></div>
+          <div class="form-group">
+            <label class="form-label" for="po-number-input">PO Number</label>
+            <input type="text" id="po-number-input" class="form-input" placeholder="e.g. PO-9002" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="po-site-select">Destination Site</label>
+            <select id="po-site-select" class="form-select" required></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="po-notes-input">Notes / Supplier Details</label>
+            <textarea id="po-notes-input" class="form-textarea" placeholder="Supplier order details, estimated arrival..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-po')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create PO</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- User Modal -->
+  <div id="modal-user" class="modal-backdrop hidden">
+    <div class="modal" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3 id="modal-user-title" class="card-title" style="font-size: 1.15rem;">Add User Account</h3>
+        <button class="close-btn" onclick="closeModal('modal-user')">×</button>
+      </div>
+      <form id="user-form" onsubmit="submitUser(event)">
+        <input type="hidden" id="user-id-input" />
+        <div class="modal-body">
+          <div id="user-modal-alert" class="alert alert-danger hidden"></div>
+          <div class="form-group">
+            <label class="form-label" for="user-username-input">Username</label>
+            <input type="text" id="user-username-input" class="form-input" placeholder="e.g. staff2" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="user-password-input">Password</label>
+            <input type="password" id="user-password-input" class="form-input" placeholder="Leave blank to keep existing (if editing)" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="user-role-select">System Role</label>
+            <select id="user-role-select" class="form-select" required onchange="onUserRoleChange()">
+              <option value="staff">Staff (Restricted to assigned site)</option>
+              <option value="admin">Admin (Unrestricted access to all sites)</option>
+            </select>
+          </div>
+          <div class="form-group" id="user-site-group">
+            <label class="form-label" for="user-site-select">Assigned Site (Mandatory for Staff)</label>
+            <select id="user-site-select" class="form-select"></select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-user')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save User</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>

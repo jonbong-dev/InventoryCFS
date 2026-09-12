@@ -1,0 +1,15 @@
+{
+  "name": "inventory-tracker-keygen",
+  "version": "1.0.0",
+  "description": "Standalone offline license key generation tool. MUST NOT be bundled or deployed with the client app.",
+  "main": "generate-key.js",
+  "bin": {
+    "keygen": "./generate-key.js"
+  },
+  "scripts": {
+    "generate": "node generate-key.js"
+  },
+  "keywords": ["license", "keygen", "hmac-sha256"],
+  "author": "Inventory Tracker Systems",
+  "license": "ISC"
+}
